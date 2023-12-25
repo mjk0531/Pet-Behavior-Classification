@@ -9,96 +9,90 @@ import torch.nn.functional as F
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
 import numpy as np
+import torchvision.transforms as transforms
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-df = pd.read_csv(
-    'G:/Cloud/Dropbox/Nature Powered Fuel Cell/공대-의대 과제/Deep Learning/Data/DogMoveData.csv')
+df = pd.read_csv('G:/Cloud/Dropbox/Nature Powered Fuel Cell/공대-의대 과제/Deep Learning/Data/DogMoveData.csv')
 
-# Assuming you have loaded your data into a pandas dataframe called df
-# The columns are: DogID, TestNum, t_sec, ABack_x, ABack_y, ABack_z, ANeck_x, ANeck_y, ANeck_z, GBack_x, GBack_y, GBack_z, GNeck_x, GNeck_y, GNeck_z, Task, Behavior_1, Behavior_2, Behavior_3, PointEvent
-# The target column is Behavior_1, which has 10 possible classes
-# The input columns are the sensor readings: ABack_x, ABack_y, ABack_z, ANeck_x, ANeck_y, ANeck_z, GBack_x, GBack_y, GBack_z, GNeck_x, GNeck_y, GNeck_z
-# We'll use the DogID and TestNum columns to split the data into train and test sets
+# Extract the data from the columns for the features and the behaviors
+# and store them in separate variables
+feature = df[["DogID", "t_sec", "ABack_x", "ABack_y", "ABack_z", "ANeck_x", "ANeck_y",
+              "ANeck_z", "GBack_x", "GBack_y", "GBack_z", "GNeck_x", "GNeck_y", "GNeck_z"]].to_numpy()
+target = df[["Behavior_1", "Behavior_2", "Behavior_3"]].to_numpy()
 
-# Split the data into train and test sets
-# We'll use 80% of the dogs for training and 20% for testing
-# We'll also use the TestNum column to ensure that the same test is not in both sets
-# This is to avoid data leakage and ensure a fair evaluation
-train_dogs = df['DogID'].unique()[:int(len(df['DogID'].unique())*0.7)]
-test_dogs = df['DogID'].unique()[int(len(df['DogID'].unique())*0.7):]
+# Load and preprocess dataset
+# Assuming your dataset is stored in a numpy array called data
+# and has the shape (N, 16), where N is the number of samples
+# and 16 is the number of features (3 for DogID, TestNum, t_sec
+# and 13 for the accelerometer and gyroscope data)
+# and the target is stored in a numpy array called target
+# and has the shape (N, 3), where 3 is the number of behaviors
 
-train_df = df[df['DogID'].isin(train_dogs)]
-test_df = df[df['DogID'].isin(test_dogs)]
-
-# Drop the columns that are not needed for the model
-train_df = train_df.drop(['DogID', 'TestNum', 't_sec',
-                         'Task', 'Behavior_2', 'Behavior_3', 'PointEvent'], axis=1)
-test_df = test_df.drop(['DogID', 'TestNum', 't_sec', 'Task',
-                       'Behavior_2', 'Behavior_3', 'PointEvent'], axis=1)
-
-# Convert the dataframes to numpy arrays
-X_train = train_df.drop('Behavior_1', axis=1).to_numpy()
-y_train = train_df['Behavior_1'].to_numpy()
-X_test = test_df.drop('Behavior_1', axis=1).to_numpy()
-y_test = test_df['Behavior_1'].to_numpy()
+# Split the dataset into train and test sets
+train_ratio = 0.8  # You can change this value
+train_size = int(train_ratio * len(feature))
+test_size = len(feature) - train_size
+train_feature, test_feature = feature[:train_size], feature[train_size:]
+train_target, test_target = target[:train_size], target[train_size:]
 
 le = LabelEncoder()
-y_train = le.fit_transform(y_train)
-y_test = le.transform(y_test)
+train_target_0 = le.fit_transform(train_target[:, 0])
+train_target_1 = le.transform(train_target[:, 1])
+train_target_2 = le.transform(train_target[:, 2])
+train_target = np.stack(
+    [train_target_0, train_target_1, train_target_2], axis=1)
+test_target_0 = le.transform(test_target[:, 0])
+test_target_1 = le.transform(test_target[:, 1])
+test_target_2 = le.transform(test_target[:, 2])
+test_target = np.stack([test_target_0, test_target_1, test_target_2], axis=1)
 
 # Convert the numpy arrays to PyTorch tensors
-X_train = torch.tensor(X_train, dtype=torch.float32)
-y_train = torch.tensor(y_train, dtype=torch.long)
-X_test = torch.tensor(X_test, dtype=torch.float32)
-y_test = torch.tensor(y_test, dtype=torch.long)
+train_feature = torch.from_numpy(train_feature).float()
+test_feature = torch.from_numpy(test_feature).float()
+train_target = torch.from_numpy(train_target).long()
+test_target = torch.from_numpy(test_target).long()
 
-# Create datasets from tensors
-train_data = TensorDataset(X_train, y_train)
-test_data = TensorDataset(X_test, y_test)
+# Define the transformations for the data
+# You can apply any transformations you want, such as normalization, augmentation, etc.
+# Here we just convert the data to a 4D tensor of shape (N, C, H, W)
+# where C is the number of channels (1 for grayscale), H and W are the height and width of the image
+# We reshape the 16 features into a 4x4 image
+transform = transforms.Compose([
+    transforms.Lambda(lambda x: x.view(-1, 1, 2, 7)),
+])
 
-# Use a larger batch size if possible
-# Use pin_memory=True to enable faster memory copy to GPU
-# Use num_workers=2*number of GPUs to speed up data loading
-train_loader = DataLoader(
-    dataset=train_data, batch_size=512, shuffle=True, pin_memory=True, num_workers=4)
-test_loader = DataLoader(
-    dataset=test_data, batch_size=512, shuffle=False, pin_memory=True, num_workers=4)
+# Apply the transformations to the train and test data
+train_feature = transform(train_feature)
+test_feature = transform(test_feature)
+
+# Create the train dataset
+train_dataset = TensorDataset(train_feature, train_target)
+test_dataset = TensorDataset(test_feature, test_target)
+
+# Define the batch size
+batch_size = 256  # You can change this value
+
+# Create the data loaders for the train and test sets
+train_loader = torch.utils.data.DataLoader(
+    train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=4)
+test_loader = torch.utils.data.DataLoader(
+    test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=4)
+
 
 # Define the CNN model
-
-
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
-        # The input shape is (batch_size, 1, 12)
-        # We'll use one channel to represent the sensor readings
-        # We'll use a 1D convolution with a kernel size of 3 and 32 filters
-        # Disable bias for convolutions directly followed by a batch norm
-        self.conv1 = nn.Conv1d(1, 32, kernel_size=3)
-        # The output shape is (batch_size, 32, 10)
-        # We'll use a max pooling layer with a kernel size of 2 and a stride of 2
-        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
-        # The output shape is (batch_size, 32, 5)
-        # We'll use another 1D convolution with a kernel size of 3 and 64 filters
-        # Disable bias for convolutions directly followed by a batch norm
-        self.conv2 = nn.Conv1d(32, 64, kernel_size=3)
-        # The output shape is (batch_size, 64, 3)
-        # We'll use another max pooling layer with a kernel size of 2 and a stride of 2
-        self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
-        # The output shape is (batch_size, 64, 1)
-        # We'll flatten the output for the fully connected layers
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=2, stride=1, padding=4)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=1)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.flatten = nn.Flatten()
-        # The output shape is (batch_size, 64)
-        # We'll use a fully connected layer with 128 units
-        self.fc1 = nn.Linear(64, 128)
-        # The output shape is (batch_size, 128)
-        # We'll use another fully connected layer with 10 units, corresponding to the number of classes
-        self.fc2 = nn.Linear(128, 20)
+        self.fc1 = nn.Linear(96, 64)
+        self.fc2 = nn.Linear(64, 3)
 
     def forward(self, x):
-        # Reshape the input to have one channel
-        x = x.unsqueeze(1)
         # Apply the first convolution and pooling layers
         x = self.pool1(F.relu(self.conv1(x)))
         # Apply the second convolution and pooling layers
@@ -112,13 +106,14 @@ class CNN(nn.Module):
         # so that the outputs sum to 1 and can represent probabilities
         return F.log_softmax(self.fc2(x), dim=1)
 
+
 # Create an instance of the model
 model = CNN()
 model = model.to(device)
 
 # Define the loss function
 # We'll use cross entropy loss, which is suitable for multi-class classification
-criterion = nn.CrossEntropyLoss()
+criterion = nn.L1Loss()
 
 # Define the optimizer
 # We'll use Adam, which is a popular and effective optimizer
@@ -126,7 +121,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 # Define the number of epochs
 # This is the number of times we'll loop over the entire training data
-epochs = 20
+epochs = 10
 
 
 if __name__ == "__main__":
@@ -173,6 +168,8 @@ if __name__ == "__main__":
             output = model(data)
             # Get the predicted class by taking the argmax of the output
             pred = output.argmax(dim=1, keepdim=True)
+            # Convert the target tensor from one-hot vectors to class indices
+            target = target.argmax(dim=1, keepdim=True)
             # Compare the predicted class with the true class
             # and count the number of correct predictions
             correct += pred.eq(target.view_as(pred)).sum().item()
