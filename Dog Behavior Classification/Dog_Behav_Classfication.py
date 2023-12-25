@@ -12,7 +12,8 @@ import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-df = pd.read_csv('G:/Cloud/Dropbox/Nature Powered Fuel Cell/공대-의대 과제/Deep Learning/Data/DogMoveData.csv')
+df = pd.read_csv(
+    'G:/Cloud/Dropbox/Nature Powered Fuel Cell/공대-의대 과제/Deep Learning/Data/DogMoveData.csv')
 
 # Assuming you have loaded your data into a pandas dataframe called df
 # The columns are: DogID, TestNum, t_sec, ABack_x, ABack_y, ABack_z, ANeck_x, ANeck_y, ANeck_z, GBack_x, GBack_y, GBack_z, GNeck_x, GNeck_y, GNeck_z, Task, Behavior_1, Behavior_2, Behavior_3, PointEvent
@@ -52,11 +53,6 @@ y_train = torch.tensor(y_train, dtype=torch.long)
 X_test = torch.tensor(X_test, dtype=torch.float32)
 y_test = torch.tensor(y_test, dtype=torch.long)
 
-X_train = X_train.to(device)
-y_train = y_train.to(device)
-X_test = X_test.to(device)
-y_test = y_test.to(device)
-
 # Create datasets from tensors
 train_data = TensorDataset(X_train, y_train)
 test_data = TensorDataset(X_test, y_test)
@@ -65,9 +61,9 @@ test_data = TensorDataset(X_test, y_test)
 # Use pin_memory=True to enable faster memory copy to GPU
 # Use num_workers=2*number of GPUs to speed up data loading
 train_loader = DataLoader(
-    dataset=train_data, batch_size=64, shuffle=True, num_workers=6)
+    dataset=train_data, batch_size=512, shuffle=True, pin_memory=True, num_workers=4)
 test_loader = DataLoader(
-    dataset=test_data, batch_size=64, shuffle=False, num_workers=6)
+    dataset=test_data, batch_size=512, shuffle=False, pin_memory=True, num_workers=4)
 
 # Define the CNN model
 
@@ -98,7 +94,7 @@ class CNN(nn.Module):
         self.fc1 = nn.Linear(64, 128)
         # The output shape is (batch_size, 128)
         # We'll use another fully connected layer with 10 units, corresponding to the number of classes
-        self.fc2 = nn.Linear(128, 10)
+        self.fc2 = nn.Linear(128, 20)
 
     def forward(self, x):
         # Reshape the input to have one channel
@@ -116,26 +112,24 @@ class CNN(nn.Module):
         # so that the outputs sum to 1 and can represent probabilities
         return F.log_softmax(self.fc2(x), dim=1)
 
-# Define the train function
+# Create an instance of the model
+model = CNN()
+model = model.to(device)
+
+# Define the loss function
+# We'll use cross entropy loss, which is suitable for multi-class classification
+criterion = nn.CrossEntropyLoss()
+
+# Define the optimizer
+# We'll use Adam, which is a popular and effective optimizer
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+# Define the number of epochs
+# This is the number of times we'll loop over the entire training data
+epochs = 20
 
 
-def train_eval():
-    # Create an instance of the model
-    model = CNN()
-    model = model.to(device)
-
-    # Define the loss function
-    # We'll use cross entropy loss, which is suitable for multi-class classification
-    criterion = nn.CrossEntropyLoss()
-
-    # Define the optimizer
-    # We'll use Adam, which is a popular and effective optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-
-    # Define the number of epochs
-    # This is the number of times we'll loop over the entire training data
-    epochs = 1
-
+if __name__ == "__main__":
     # Train the model
     for epoch in range(epochs):
         # Initialize the running loss
@@ -143,6 +137,8 @@ def train_eval():
         # Loop over the batches of training data
         for batch_idx, (data, target) in enumerate(train_loader):
             # Forward pass: Compute predicted y by passing data to the model
+            data = data.to(device)
+            target = target.to(device)
             output = model(data)
             # Compute loss
             loss = criterion(output, target)
@@ -171,6 +167,8 @@ def train_eval():
     # Loop over the batches of test data
     with torch.no_grad():
         for data, target in test_loader:
+            data = data.to(device)
+            target = target.to(device)
             # Forward pass: Compute predicted y by passing data to the model
             output = model(data)
             # Get the predicted class by taking the argmax of the output
@@ -183,16 +181,3 @@ def train_eval():
 
     # Print the accuracy
     print(f'Accuracy: {correct / total:.3f}')
-
-# Define the main function
-
-
-def main():
-    # Call the train function
-    train_eval()
-
-
-# Check if the script is run directly
-if __name__ == "__main__":
-    # Call the main function
-    main()
