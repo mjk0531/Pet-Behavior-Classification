@@ -12,7 +12,7 @@ import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-df = pd.read_csv('DogMoveData.csv')
+df = pd.read_csv('G:/Cloud/Dropbox/Nature Powered Fuel Cell/공대-의대 과제/Deep Learning/Data/DogMoveData.csv')
 
 # Assuming you have loaded your data into a pandas dataframe called df
 # The columns are: DogID, TestNum, t_sec, ABack_x, ABack_y, ABack_z, ANeck_x, ANeck_y, ANeck_z, GBack_x, GBack_y, GBack_z, GNeck_x, GNeck_y, GNeck_z, Task, Behavior_1, Behavior_2, Behavior_3, PointEvent
